@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) (vYY.MM.DD.N).
 
+## [v26.04.09.2] - 2026-04-09
+
+### Added
+- Documentation: Updated README with a detailed description of the `deploy.sh` script, security architecture (salted/hashed passwords), and manual execution options.
+
 ## [v26.04.09.1] - 2026-04-09
 
 ### Added

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Gemini Pulse - A zero-dependency mobile-friendly monitor for gemini-cli.
-Version: v26.04.09.1
+Version: v26.04.09.2
 
 Features:
 - Responsive Grid Layout (Mobile/Desktop).
@@ -414,5 +414,5 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     with socketserver.TCPServer(("0.0.0.0", PORT), PulseHandler) as httpd:
-        print(f"Gemini Pulse (v26.04.09.1) active at http://0.0.0.0:{PORT}")
+        print(f"Gemini Pulse (v26.04.09.2) active at http://0.0.0.0:{PORT}")
         httpd.serve_forever()
