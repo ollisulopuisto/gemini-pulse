@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Gemini Pulse - A zero-dependency mobile-friendly monitor for gemini-cli.
-Version: v26.04.09.2
+Version: v26.04.09.3
 
 Features:
 - Responsive Grid Layout (Mobile/Desktop).
@@ -104,6 +104,34 @@ HTML_TEMPLATE = """
             background-size: 200% 100%;
             animation: shimmer 2s infinite linear;
             display: none;
+        }
+        .deep-status {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px dashed var(--border);
+            font-size: 0.85rem;
+        }
+        .deep-row {
+            margin-bottom: 0.5rem;
+        }
+        .deep-label {
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.2rem;
+        }
+        .deep-content {
+            color: var(--text);
+            line-height: 1.4;
+        }
+        .thought-subject {
+            color: var(--purple);
+            font-weight: 600;
+        }
+        .action-desc {
+            color: var(--blue);
         }
         .is-busy .busy-indicator { display: block; }
         @keyframes shimmer {
@@ -236,6 +264,22 @@ HTML_TEMPLATE = """
                     </div>
                     <div class="cwd">${a.cwd}</div>
                     <div class="msg-box">${a.msg}</div>
+                    
+                    <div class="deep-status">
+                        <div class="deep-row">
+                            <div class="deep-label">Latest Prompt</div>
+                            <div class="deep-content">${a.latest_prompt}</div>
+                        </div>
+                        <div class="deep-row">
+                            <div class="deep-label">Current Thought</div>
+                            <div class="deep-content thought-subject">${a.current_thought}</div>
+                        </div>
+                        <div class="deep-row">
+                            <div class="deep-label">Latest Action</div>
+                            <div class="deep-content action-desc">${a.latest_action}</div>
+                        </div>
+                    </div>
+
                     <div class="meta-row">
                         <div>
                             <span class="badge type-${a.type}">${a.type}</span>
@@ -342,10 +386,48 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
                             break
                 
                 msg, mtype, mtime, munix, busy = "No active logs", "none", "---", 0, False
+                latest_prompt, current_thought, latest_action = "---", "---", "---"
                 
                 # Busy Heuristic 1: CPU usage > 2% (Node.js baseline)
                 if cpu_usage > 2.0:
                     busy = True
+
+                # Try to extract Deep Status from session JSON
+                try:
+                    chat_dir = (log_file.parent if log_file else GEMINI_TMP_ROOT / project_name) / "chats"
+                    if chat_dir.exists():
+                        sessions = sorted(chat_dir.glob("session-*.json"), key=os.path.getmtime, reverse=True)
+                        if sessions:
+                            with open(sessions[0], "r") as f:
+                                session_data = json.load(f)
+                                messages = session_data.get("messages", [])
+                                
+                                # Extract latest prompt
+                                for m in reversed(messages):
+                                    if m.get("type") == "user":
+                                        content = m.get("content", [])
+                                        if isinstance(content, list) and content:
+                                            latest_prompt = content[0].get("text", "---")[:200]
+                                        elif isinstance(content, str):
+                                            latest_prompt = content[:200]
+                                        break
+                                
+                                # Extract current thought and latest action
+                                if messages:
+                                    last_msg = messages[-1]
+                                    if last_msg.get("type") == "gemini":
+                                        thoughts = last_msg.get("thoughts", [])
+                                        if thoughts:
+                                            current_thought = thoughts[-1].get("subject", "---")
+                                        
+                                        tool_calls = last_msg.get("toolCalls", [])
+                                        if tool_calls:
+                                            latest_action = tool_calls[-1].get("description", "---")
+                                        elif last_msg.get("content"):
+                                            # If no tool call, use the content as the action/status
+                                            latest_action = last_msg.get("content", "---")[:200]
+                except:
+                    pass
 
                 # Busy Heuristic 2: Any file in CWD (excluding .git) modified in last 30s
                 try:
@@ -403,7 +485,10 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
                 agents[str(cwd)] = {
                     "pid": pid, "project": project_name, "cwd": str(cwd),
                     "msg": msg, "type": mtype, "time": mtime, "unix": munix, "busy": busy,
-                    "cpu": cpu_usage
+                    "cpu": cpu_usage,
+                    "latest_prompt": latest_prompt,
+                    "current_thought": current_thought,
+                    "latest_action": latest_action
                 }
             except:
                 continue
@@ -414,5 +499,5 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     with socketserver.TCPServer(("0.0.0.0", PORT), PulseHandler) as httpd:
-        print(f"Gemini Pulse (v26.04.09.2) active at http://0.0.0.0:{PORT}")
+        print(f"Gemini Pulse (v26.04.09.3) active at http://0.0.0.0:{PORT}")
         httpd.serve_forever()
