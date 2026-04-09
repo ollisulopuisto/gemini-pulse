@@ -236,6 +236,14 @@ HTML_TEMPLATE = """
                 document.getElementById('list').innerHTML = '<div class="empty">Connection Lost</div>';
             }
         }
+        function esc(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
         function render(agents) {
             const list = document.getElementById('list');
             if (!agents || agents.length === 0) {
@@ -259,35 +267,35 @@ HTML_TEMPLATE = """
                 <div class="card ${busyClass}">
                     <div class="busy-indicator"></div>
                     <div class="title-row">
-                        <span class="project-name">${a.project}</span>
+                        <span class="project-name">${esc(a.project)}</span>
                         <span class="status-badge ${statusBadgeClass}">${statusLabel}</span>
                     </div>
-                    <div class="cwd">${a.cwd}</div>
-                    <div class="msg-box">${a.msg}</div>
+                    <div class="cwd">${esc(a.cwd)}</div>
+                    <div class="msg-box">${esc(a.msg)}</div>
                     
                     <div class="deep-status">
                         <div class="deep-row">
                             <div class="deep-label">Latest Prompt</div>
-                            <div class="deep-content">${a.latest_prompt}</div>
+                            <div class="deep-content">${esc(a.latest_prompt)}</div>
                         </div>
                         <div class="deep-row">
                             <div class="deep-label">Current Thought</div>
-                            <div class="deep-content thought-subject">${a.current_thought}</div>
+                            <div class="deep-content thought-subject">${esc(a.current_thought)}</div>
                         </div>
                         <div class="deep-row">
                             <div class="deep-label">Latest Action</div>
-                            <div class="deep-content action-desc">${a.latest_action}</div>
+                            <div class="deep-content action-desc">${esc(a.latest_action)}</div>
                         </div>
                     </div>
 
                     <div class="meta-row">
                         <div>
-                            <span class="badge type-${a.type}">${a.type}</span>
+                            <span class="badge type-${esc(a.type)}">${esc(a.type)}</span>
                             <span class="badge" style="background: var(--border); color: var(--text-muted);">${a.cpu.toFixed(1)}% CPU</span>
                         </div>
                         <div class="time-info">
                             <span class="rel-time">${rel}</span>
-                            <span style="color: var(--text-muted); margin-left: 4px;">${a.time}</span>
+                            <span style="color: var(--text-muted); margin-left: 4px;">${esc(a.time)}</span>
                         </div>
                     </div>
                 </div>
@@ -396,9 +404,10 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
                 try:
                     chat_dir = (log_file.parent if log_file else GEMINI_TMP_ROOT / project_name) / "chats"
                     if chat_dir.exists():
-                        sessions = sorted(chat_dir.glob("session-*.json"), key=os.path.getmtime, reverse=True)
-                        if sessions:
-                            with open(sessions[0], "r") as f:
+                        session_files = list(chat_dir.glob("session-*.json"))
+                        if session_files:
+                            newest_session = max(session_files, key=os.path.getmtime)
+                            with open(newest_session, "r", encoding="utf-8", errors="replace") as f:
                                 session_data = json.load(f)
                                 messages = session_data.get("messages", [])
                                 
@@ -407,7 +416,7 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
                                     if m.get("type") == "user":
                                         content = m.get("content", [])
                                         if isinstance(content, list) and content:
-                                            latest_prompt = content[0].get("text", "---")[:200]
+                                            latest_prompt = str(content[0].get("text", "---"))[:200]
                                         elif isinstance(content, str):
                                             latest_prompt = content[:200]
                                         break
@@ -418,15 +427,19 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
                                     if last_msg.get("type") == "gemini":
                                         thoughts = last_msg.get("thoughts", [])
                                         if thoughts:
-                                            current_thought = thoughts[-1].get("subject", "---")
+                                            current_thought = str(thoughts[-1].get("subject", "---"))[:200]
                                         
                                         tool_calls = last_msg.get("toolCalls", [])
                                         if tool_calls:
-                                            latest_action = tool_calls[-1].get("description", "---")
-                                        elif last_msg.get("content"):
-                                            # If no tool call, use the content as the action/status
-                                            latest_action = last_msg.get("content", "---")[:200]
-                except:
+                                            latest_action = str(tool_calls[-1].get("description", "---"))[:200]
+                                        else:
+                                            content = last_msg.get("content")
+                                            if content:
+                                                if isinstance(content, list):
+                                                    latest_action = str(content[0].get("text", "---") if content else "---")[:200]
+                                                else:
+                                                    latest_action = str(content)[:200]
+                except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
                     pass
 
                 # Busy Heuristic 2: Any file in CWD (excluding .git) modified in last 30s
