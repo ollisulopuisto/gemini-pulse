@@ -290,7 +290,7 @@ HTML_TEMPLATE = """
 
                     <div class="meta-row">
                         <div>
-                            <span class="badge type-${esc(a.type)}">${esc(a.type)}</span>
+                            <span class="badge type-${a.type}">${esc(a.type)}</span>
                             <span class="badge" style="background: var(--border); color: var(--text-muted);">${a.cpu.toFixed(1)}% CPU</span>
                         </div>
                         <div class="time-info">
@@ -436,7 +436,7 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
                                             content = last_msg.get("content")
                                             if content:
                                                 if isinstance(content, list):
-                                                    latest_action = str(content[0].get("text", "---") if content else "---")[:200]
+                                                    latest_action = str(content[0].get("text", "---"))[:200]
                                                 else:
                                                     latest_action = str(content)[:200]
                 except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
