@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) (vYY.MM.DD.N).
 
+## [v26.04.09.3] - 2026-04-09
+
+### Added
+- **Deep Status Monitoring:** The dashboard now extracts and displays real-time agent state from `gemini-cli` session files:
+    - **Latest Prompt:** Shows the last instruction received from the user.
+    - **Current Thought:** Displays the high-level subject of the agent's current reasoning process.
+    - **Latest Action:** Shows the description of the most recently completed or active tool call.
+- UI Enhancements: Added a dedicated "Deep Status" section to agent cards with specialized styling for improved readability.
+
 ## [v26.04.09.2] - 2026-04-09
 
 ### Added
