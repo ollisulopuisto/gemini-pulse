@@ -1,0 +1,4 @@
+.DS_Store
+*.log
+*.err
+com.dst.gemini-pulse.plist
