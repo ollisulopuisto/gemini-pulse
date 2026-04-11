@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Gemini Pulse - A zero-dependency mobile-friendly monitor for gemini-cli.
-Version: v26.04.11.7
+Version: v26.04.11.8
+License: GNU General Public License v3
 
 
 Features:
@@ -565,7 +566,7 @@ if __name__ == "__main__":
                 httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
                 protocol = "https"
             
-            print(f"Gemini Pulse (v26.04.11.7) active at {protocol}://localhost:{PORT}", flush=True)
+            print(f"Gemini Pulse (v26.04.11.8) [GPLv3] active at {protocol}://localhost:{PORT}", flush=True)
             httpd.serve_forever()
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr, flush=True)

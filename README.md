@@ -50,4 +50,4 @@ Access the dashboard at `http://localhost:1337` (or your network IP).
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+This project is licensed under the GNU General Public License v3 - see the [LICENSE.md](LICENSE.md) file for details.

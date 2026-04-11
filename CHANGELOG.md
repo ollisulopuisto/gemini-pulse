@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Calendar Versioning](https://calver.org/) (vYY.MM.DD.N).
 
+## [v26.04.11.8] - 2026-04-11
+
+### Changed
+- **License Update:** Corrected the license information in README and headers to GNU General Public License v3 to match the project's LICENSE file.
+
 ## [v26.04.11.7] - 2026-04-11
 
 ### Fixed
