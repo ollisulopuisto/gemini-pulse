@@ -3,11 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.user.gemini-pulse</string>
+    <string>{{PLIST_NAME_STR}}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
-        <string>{{PROJECT_PATH}}/pulse.py</string>
+        <string>{{PYTHON_PATH}}</string>
+        <string>-u</string>
+        <string>{{PULSE_PY_PATH}}</string>
     </array>
     <key>RunAtLoad</key>
     <true/>

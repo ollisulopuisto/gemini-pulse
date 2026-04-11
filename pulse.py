@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 Gemini Pulse - A zero-dependency mobile-friendly monitor for gemini-cli.
-Version: v26.04.09.3
+Version: v26.04.11.7
+
 
 Features:
 - Responsive Grid Layout (Mobile/Desktop).
 - Deduplication of processes by Project CWD.
+...
 - "Busy" state detection based on log heuristics and file modification time.
 """
 import http.server
@@ -19,15 +21,24 @@ import time
 import base64
 import hashlib
 import hmac
+import sys
+import ssl
 from pathlib import Path
 
+# --- BOOTSTRAP ---
+print("--- Pulse Process Starting ---", flush=True)
+
 # --- CONFIGURATION ---
-PORT = int(os.getenv("PORT", 1337))
+PORT = 1337
 GEMINI_TMP_ROOT = Path(os.path.expanduser("~/.gemini/tmp"))
 
 # Authentication (optional)
 AUTH_USER = os.getenv("PULSE_USER")
 AUTH_HASH = os.getenv("PULSE_HASH") # Format: salt:hash (base64)
+
+# SSL (optional, for HTTPS)
+CERT_FILE = Path(__file__).parent / "cert.pem"
+KEY_FILE = Path(__file__).parent / "key.pem"
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -274,18 +285,16 @@ HTML_TEMPLATE = """
                     <div class="msg-box">${esc(a.msg)}</div>
                     
                     <div class="deep-status">
-                        <div class="deep-row">
-                            <div class="deep-label">Latest Prompt</div>
-                            <div class="deep-content">${esc(a.latest_prompt)}</div>
-                        </div>
+                        ${a.current_thought !== "---" ? `
                         <div class="deep-row">
                             <div class="deep-label">Current Thought</div>
                             <div class="deep-content thought-subject">${esc(a.current_thought)}</div>
-                        </div>
+                        </div>` : ''}
+                        ${a.latest_action !== "---" ? `
                         <div class="deep-row">
                             <div class="deep-label">Latest Action</div>
                             <div class="deep-content action-desc">${esc(a.latest_action)}</div>
-                        </div>
+                        </div>` : ''}
                     </div>
 
                     <div class="meta-row">
@@ -396,67 +405,91 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
                 msg, mtype, mtime, munix, busy = "No active logs", "none", "---", 0, False
                 latest_prompt, current_thought, latest_action = "---", "---", "---"
                 
-                # Busy Heuristic 1: CPU usage > 2% (Node.js baseline)
+                # Busy Heuristic 1: CPU usage > 2%
                 if cpu_usage > 2.0:
                     busy = True
 
                 # Try to extract Deep Status from session JSON
                 try:
-                    chat_dir = (log_file.parent if log_file else GEMINI_TMP_ROOT / project_name) / "chats"
+                    chat_dir = (log_file.parent if log_file else (GEMINI_TMP_ROOT / project_name)) / "chats"
                     if chat_dir.exists():
                         session_files = list(chat_dir.glob("session-*.json"))
                         if session_files:
                             newest_session = max(session_files, key=os.path.getmtime)
-                            with open(newest_session, "r", encoding="utf-8", errors="replace") as f:
-                                session_data = json.load(f)
-                                messages = session_data.get("messages", [])
+                            # Efficiently read only the end of the file for the latest state
+                            with open(newest_session, "rb") as f:
+                                f.seek(0, os.SEEK_END)
+                                size = f.tell()
+                                read_size = min(size, 131072)
+                                f.seek(size - read_size)
+                                tail = f.read().decode('utf-8', errors='replace')
                                 
-                                # Extract latest prompt
-                                for m in reversed(messages):
-                                    if m.get("type") == "user":
-                                        content = m.get("content", [])
-                                        if isinstance(content, list) and content:
-                                            latest_prompt = str(content[0].get("text", "---"))[:200]
-                                        elif isinstance(content, str):
-                                            latest_prompt = content[:200]
-                                        break
-                                
-                                # Extract current thought and latest action
-                                if messages:
-                                    last_msg = messages[-1]
-                                    if last_msg.get("type") == "gemini":
-                                        thoughts = last_msg.get("thoughts", [])
-                                        if thoughts:
-                                            current_thought = str(thoughts[-1].get("subject", "---"))[:200]
-                                        
-                                        tool_calls = last_msg.get("toolCalls", [])
-                                        if tool_calls:
-                                            latest_action = str(tool_calls[-1].get("description", "---"))[:200]
-                                        else:
-                                            content = last_msg.get("content")
-                                            if content:
-                                                if isinstance(content, list):
-                                                    latest_action = str(content[0].get("text", "---"))[:200]
+                                # Extract messages using a more robust brace-balancing approach
+                                chunks = tail.split('"id":')
+                                if len(chunks) > 1:
+                                    parsed_messages = []
+                                    # Take last 8 potential messages to ensure we get user/gemini pairs
+                                    for chunk in reversed(chunks[-9:]):
+                                        try:
+                                            # Reconstruct a parsable JSON snippet
+                                            m_str = '{"id":' + chunk
+                                            # Find the balanced end of the object
+                                            balance = 0
+                                            in_string = False
+                                            escape = False
+                                            end_pos = -1
+                                            for i, char in enumerate(m_str):
+                                                if char == '"' and not escape:
+                                                    in_string = not in_string
+                                                if not in_string:
+                                                    if char == '{': balance += 1
+                                                    elif char == '}':
+                                                        balance -= 1
+                                                        if balance == 0:
+                                                            end_pos = i + 1
+                                                            break
+                                                elif char == '\\':
+                                                    escape = not escape
                                                 else:
-                                                    latest_action = str(content)[:200]
-                except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
-                    pass
-
-                # Busy Heuristic 2: Any file in CWD (excluding .git) modified in last 30s
-                try:
-                    # Look for any recently modified file in the project directory
-                    # We limit depth to avoid deep scanning and ignore hidden dirs
-                    recent_files = subprocess.check_output(
-                        ["find", str(cwd), "-maxdepth", "2", "-not", "-path", "*/.*", "-newermt", "30 seconds ago"], 
-                        text=True, stderr=subprocess.DEVNULL
-                    ).strip()
-                    if recent_files:
-                        busy = True
-                except:
+                                                    escape = False
+                                            
+                                            if end_pos != -1:
+                                                m_obj = json.loads(m_str[:end_pos])
+                                                parsed_messages.append(m_obj)
+                                        except: continue
+                                    
+                                    # Extract latest prompt
+                                    for m in parsed_messages:
+                                        if m.get("type") == "user":
+                                            content = m.get("content", [])
+                                            if isinstance(content, list) and content:
+                                                latest_prompt = str(content[0].get("text", "---"))[:200]
+                                            elif isinstance(content, str):
+                                                latest_prompt = content[:200]
+                                            break
+                                    
+                                    # Extract current thought and action
+                                    for m in parsed_messages:
+                                        if m.get("type") == "gemini":
+                                            thoughts = m.get("thoughts", [])
+                                            if thoughts:
+                                                # Use subject if available, otherwise description (truncated)
+                                                t = thoughts[-1]
+                                                current_thought = str(t.get("subject") or t.get("description") or "---")[:200]
+                                            
+                                            tool_calls = m.get("toolCalls", [])
+                                            if tool_calls:
+                                                latest_action = str(tool_calls[-1].get("description", "---"))[:200]
+                                            else:
+                                                content = m.get("content")
+                                                if content:
+                                                    latest_action = str(content[0].get("text", content) if isinstance(content, list) else content)[:200]
+                                            break
+                except Exception:
                     pass
 
                 if log_file and log_file.exists():
-                    # Busy Heuristic 3: Log file modified in last 60s
+                    # Busy Heuristic 2: Log file modified in last 60s
                     mtime_stat = os.path.getmtime(log_file)
                     now = time.time()
                     if (now - mtime_stat) < 60:
@@ -466,16 +499,15 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
                         try:
                             f.seek(0, os.SEEK_END)
                             size = f.tell()
-                            # Read last 32KB to find the last valid JSON object
-                            read_size = min(size, 32768)
+                            # Read last 16KB to find the last valid JSON object
+                            read_size = min(size, 16384)
                             f.seek(size - read_size)
                             tail = f.read()
                             
                             # Find the last { ... } that contains "message"
-                            parts = tail.split("\n  {")
-                            if len(parts) > 1:
-                                last_json = "{" + parts[-1].rstrip().rstrip("]")
-                                latest = json.loads(last_json)
+                            matches = re.findall(r'\{[^{}]*?"message"[^{}]*?\}', tail, re.DOTALL)
+                            if matches:
+                                latest = json.loads(matches[-1])
                                 msg = latest.get("message", "---")[:1000]
                                 mtype = latest.get("type", "unknown")
                                 ts = latest.get("timestamp", "---")
@@ -485,15 +517,27 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
                                     munix = int(dt.timestamp())
                                 except: pass
 
-                                # Busy Heuristic 4: Type is 'user' (thinking) or 'tool' (waiting)
-                                # BUT only if it happened recently (within last 10 minutes)
+                                # Busy Heuristic 3: Type is 'user' or 'tool' (waiting)
+                                # Only if recent
                                 if (now - munix) < 600:
                                     if mtype == "user":
                                         busy = True
                                     elif mtype == "tool" and "call_id" in str(latest) and "result" not in str(latest):
                                         busy = True
-                        except Exception as e:
-                            msg = f"Parsing error: {str(e)[:50]}"
+                        except:
+                            msg = "Parsing error"
+
+                # Busy Heuristic 4: Any file in CWD (excluding hidden) modified in last 30s
+                try:
+                    # Look for any recently modified file in the project directory
+                    recent_files = subprocess.check_output(
+                        ["find", str(cwd), "-maxdepth", "2", "-not", "-path", "*/.*", "-newermt", "30 seconds ago"], 
+                        text=True, stderr=subprocess.DEVNULL, timeout=2
+                    ).strip()
+                    if recent_files:
+                        busy = True
+                except:
+                    pass
 
                 agents[str(cwd)] = {
                     "pid": pid, "project": project_name, "cwd": str(cwd),
@@ -511,6 +555,19 @@ class PulseHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args): return 
 
 if __name__ == "__main__":
-    with socketserver.TCPServer(("0.0.0.0", PORT), PulseHandler) as httpd:
-        print(f"Gemini Pulse (v26.04.09.3) active at http://0.0.0.0:{PORT}")
-        httpd.serve_forever()
+    socketserver.TCPServer.allow_reuse_address = True
+    try:
+        with socketserver.TCPServer(("0.0.0.0", PORT), PulseHandler) as httpd:
+            protocol = "http"
+            if CERT_FILE.exists() and KEY_FILE.exists():
+                context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
+                httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+                protocol = "https"
+            
+            print(f"Gemini Pulse (v26.04.11.7) active at {protocol}://localhost:{PORT}", flush=True)
+            httpd.serve_forever()
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr, flush=True)
+        sys.exit(1)
+

@@ -4,3 +4,5 @@
 com.dst.gemini-pulse.plist
 __pycache__/
 *.py[cod]
+cert.pem
+key.pem
